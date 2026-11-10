@@ -5,25 +5,59 @@ Disesuaikan dengan db_peminjaman.sql:
   view v_peminjaman_detail, v_jadwal_aktif
   constraint no_bentrok (EXCLUDE gist) -> bentrok jadwal dijaga langsung oleh database
   trigger trg_log_status -> log_status terisi otomatis, API tidak perlu insert manual
+
+Frontend:
+  templates/  base.html, index.html, gedung.html, ruangan.html, users.html, peminjaman.html
+  static/     style.css, app.js
+  Endpoint GET /, /gedung, /ruangan, /users, /peminjaman akan mengembalikan HALAMAN HTML
+  kalau dibuka dari browser (header Accept: text/html), dan tetap mengembalikan JSON
+  untuk fetch() / Swagger / client API (Accept: application/json atau */*).
 """
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 import bcrypt
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from psycopg2 import errors
 
 from database import get_cursor
 from schemas import GedungIn, PeminjamanIn, RuanganIn, StatusIn, UserIn, UserUpdate
 
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
-
 app = FastAPI(title="API Peminjaman Ruangan Kampus")
-BASE_DIR = Path(__file__).resolve().parent
 
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+# app.js ada di folder templates/ (bukan static/), jadi /static/app.js tidak akan ketemu.
+# Route ini harus didefinisikan SEBELUM app.mount("/static") supaya diprioritaskan.
+# Solusi yang benar: pindahkan app.js ke static/, lalu route ini boleh dihapus.
+@app.get("/static/app.js", include_in_schema=False)
+def serve_app_js():
+    for p in (STATIC_DIR / "app.js", TEMPLATES_DIR / "app.js"):
+        if p.exists():
+            return FileResponse(p, media_type="application/javascript")
+    raise HTTPException(404, "app.js tidak ditemukan di static/ maupun templates/")
+
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ---------- helper halaman HTML ----------
+def wants_html(request: Request) -> bool:
+    """True kalau request datang dari navigasi browser (bukan fetch/Swagger)."""
+    return "text/html" in request.headers.get("accept", "")
+
+
+def render(request: Request, name: str, **context):
+    return templates.TemplateResponse(request, name, context)
 
 
 # ---------- error handler untuk constraint / trigger database ----------
@@ -105,6 +139,12 @@ def cek_ruangan_layak(cur, ruangan_id: int, jumlah_peserta: int):
         raise HTTPException(400, f"Jumlah peserta ({jumlah_peserta}) melebihi kapasitas ruangan ({r['kapasitas']})")
 
 
+# ====================== HALAMAN UTAMA ======================
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def halaman_index(request: Request):
+    return render(request, "index.html", active="index")
+
+
 # ====================== GEDUNG ======================
 @app.post("/gedung", status_code=201, tags=["gedung"])
 def tambah_gedung(data: GedungIn):
@@ -114,7 +154,9 @@ def tambah_gedung(data: GedungIn):
 
 
 @app.get("/gedung", tags=["gedung"])
-def daftar_gedung():
+def daftar_gedung(request: Request):
+    if wants_html(request):
+        return render(request, "gedung.html", active="gedung")
     with get_cursor() as cur:
         cur.execute("SELECT * FROM gedung ORDER BY kode")
         return cur.fetchall()
@@ -156,10 +198,13 @@ def tambah_ruangan(data: RuanganIn):
 
 @app.get("/ruangan", tags=["ruangan"])
 def daftar_ruangan(
+    request: Request,
     gedung_id: Optional[int] = None,
     min_kapasitas: Optional[int] = None,
     aktif: Optional[bool] = None,
 ):
+    if wants_html(request):
+        return render(request, "ruangan.html", active="ruangan")
     conds, params = [], []
     if gedung_id is not None:
         conds.append("r.gedung_id = %s")
@@ -251,7 +296,9 @@ def tambah_user(data: UserIn):
 
 
 @app.get("/users", tags=["users"])
-def daftar_user(role: Optional[str] = None):
+def daftar_user(request: Request, role: Optional[str] = None):
+    if wants_html(request):
+        return render(request, "users.html", active="users")
     with get_cursor() as cur:
         if role:
             cur.execute(f"SELECT {USER_COLS} FROM users WHERE role = %s ORDER BY nama", (role,))
@@ -309,6 +356,7 @@ def ajukan_peminjaman(data: PeminjamanIn):
 
 @app.get("/peminjaman", tags=["peminjaman"])
 def daftar_peminjaman(
+    request: Request,
     user_id: Optional[int] = None,
     ruangan_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -316,6 +364,8 @@ def daftar_peminjaman(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    if wants_html(request):
+        return render(request, "peminjaman.html", active="peminjaman")
     conds, params = [], []
     if user_id is not None:
         conds.append("user_id = %s")

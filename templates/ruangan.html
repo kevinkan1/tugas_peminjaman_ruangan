@@ -160,7 +160,7 @@ $("#formCek").addEventListener("submit", (e) => {
           const q = new URLSearchParams({ baru: 1, ruangan_id: r.id, mulai: f.get("mulai"), selesai: f.get("selesai") });
           return `<div class="chip"><strong>${esc(r.kode)}</strong> ${esc(r.nama)}
             <div class="sub">${esc(r.gedung)} · kapasitas ${r.kapasitas}</div>
-            <a class="btn sm primary" href="/ui/peminjaman?${q}">Ajukan</a></div>`;
+            <a class="btn sm primary" href="/peminjaman?${q}">Ajukan</a></div>`;
         }).join("")}</div>`
       : `<p class="empty">Tidak ada ruangan kosong pada rentang waktu itu.</p>`;
   });

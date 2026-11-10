@@ -6,7 +6,7 @@ from psycopg2.pool import SimpleConnectionPool
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:admin@localhost:5432/db_peminjaman",
+    "postgresql://postgres:postgres@localhost:5432/db_peminjaman",
 )
 
 _pool = None
