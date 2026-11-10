@@ -1,18 +1,3 @@
-"""
-API Peminjaman Ruangan Kampus (FastAPI + PostgreSQL, raw SQL via psycopg2)
-Disesuaikan dengan db_peminjaman.sql:
-  gedung, users, ruangan, peminjaman, log_status
-  view v_peminjaman_detail, v_jadwal_aktif
-  constraint no_bentrok (EXCLUDE gist) -> bentrok jadwal dijaga langsung oleh database
-  trigger trg_log_status -> log_status terisi otomatis, API tidak perlu insert manual
-
-Frontend:
-  templates/  base.html, index.html, gedung.html, ruangan.html, users.html, peminjaman.html
-  static/     style.css, app.js
-  Endpoint GET /, /gedung, /ruangan, /users, /peminjaman akan mengembalikan HALAMAN HTML
-  kalau dibuka dari browser (header Accept: text/html), dan tetap mengembalikan JSON
-  untuk fetch() / Swagger / client API (Accept: application/json atau */*).
-"""
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
