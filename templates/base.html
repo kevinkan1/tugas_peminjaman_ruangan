@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dashboard{% endblock %} · Peminjaman Ruangan Kampus</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/ui/">Peminjaman Ruangan</a>
+      <nav>
+        <a href="/ui/" class="{{ 'active' if active == 'dashboard' }}">Dashboard</a>
+        <a href="/ui/peminjaman" class="{{ 'active' if active == 'peminjaman' }}">Peminjaman</a>
+        <a href="/ui/ruangan" class="{{ 'active' if active == 'ruangan' }}">Ruangan</a>
+        <a href="/ui/gedung" class="{{ 'active' if active == 'gedung' }}">Gedung</a>
+        <a href="/ui/users" class="{{ 'active' if active == 'users' }}">Pengguna</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="toasts" class="toasts"></div>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

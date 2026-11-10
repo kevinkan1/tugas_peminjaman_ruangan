@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}Ruangan{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Ruangan</h1>
+  <button class="btn primary" id="btnBaru">+ Tambah ruangan</button>
+</div>
+
+<section class="card">
+  <h2>Cek ketersediaan</h2>
+  <form id="formCek" class="filters">
+    <label>Mulai <input type="datetime-local" name="mulai" required></label>
+    <label>Selesai <input type="datetime-local" name="selesai" required></label>
+    <label>Min. kapasitas <input type="number" name="min_kapasitas" min="1" style="width:8rem"></label>
+    <button class="btn primary">Cari ruangan kosong</button>
+  </form>
+  <div id="hasilCek"></div>
+</section>
+
+<section class="card">
+  <div class="filters">
+    <label>Gedung <select id="fGedung"></select></label>
+    <label>Min. kapasitas <input type="number" id="fKap" min="1" style="width:8rem"></label>
+    <label>Status
+      <select id="fAktif"><option value="">Semua</option><option value="true">Aktif</option><option value="false">Nonaktif</option></select>
+    </label>
+    <button class="btn" id="btnFilter">Terapkan</button>
+  </div>
+  <div id="tbl" class="table-wrap"></div>
+</section>
+
+<dialog id="dlg">
+  <form id="form" class="form">
+    <h2 id="judul">Tambah ruangan</h2>
+    <div class="row2">
+      <label>Kode <input name="kode" maxlength="30" required></label>
+      <label>Gedung <select name="gedung_id" required></select></label>
+    </div>
+    <label>Nama <input name="nama" maxlength="100" required></label>
+    <div class="row2">
+      <label>Lantai <input type="number" name="lantai" value="1" required></label>
+      <label>Kapasitas <input type="number" name="kapasitas" min="1" required></label>
+    </div>
+    <label>Fasilitas <input name="fasilitas" placeholder="Proyektor, AC, ..."></label>
+    <label class="check"><input type="checkbox" name="aktif" checked> Ruangan aktif (bisa dipinjam)</label>
+    <div class="form-actions">
+      <button type="button" class="btn" data-close>Batal</button>
+      <button class="btn primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgJadwal">
+  <div class="form">
+    <h2 id="jadwalJudul">Jadwal</h2>
+    <label>Tanggal <input type="date" id="jadwalTgl"></label>
+    <div id="jadwalList"></div>
+    <div class="form-actions"><button type="button" class="btn" data-close>Tutup</button></div>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let rows = [], gedung = [], editId = null, jadwalId = null;
+const form = $("#form");
+
+async function init() {
+  gedung = await api("/gedung");
+  fillSelect($("#fGedung"), gedung, (g) => g.id, (g) => g.nama, "Semua gedung");
+  fillSelect(form.gedung_id, gedung, (g) => g.id, (g) => `${g.kode} · ${g.nama}`);
+  await load();
+}
+
+async function load() {
+  rows = await api("/ruangan", { params: {
+    gedung_id: $("#fGedung").value, min_kapasitas: $("#fKap").value, aktif: $("#fAktif").value } });
+  renderTable($("#tbl"), [
+    { h: "Kode", f: (r) => `<strong>${esc(r.kode)}</strong>` },
+    { h: "Nama", f: (r) => `${esc(r.nama)}<div class="sub">${esc(r.fasilitas || "")}</div>` },
+    { h: "Gedung", f: (r) => `${esc(r.gedung)}<div class="sub">Lantai ${r.lantai}</div>` },
+    { h: "Kapasitas", cls: "num", f: (r) => r.kapasitas },
+    { h: "Status", f: (r) => r.aktif ? badge("aktif") : badge("nonaktif") },
+    { h: "", f: (r) => `<div class="actions">
+        <button class="btn sm" data-act="jadwal" data-id="${r.id}">Jadwal</button>
+        <button class="btn sm" data-act="edit" data-id="${r.id}">Ubah</button>
+        <button class="btn sm danger" data-act="hapus" data-id="${r.id}">Hapus</button></div>` },
+  ], rows, "Tidak ada ruangan yang cocok.");
+}
+
+function buka(r) {
+  editId = r ? r.id : null;
+  $("#judul").textContent = r ? "Ubah ruangan" : "Tambah ruangan";
+  form.kode.value = r ? r.kode : "";
+  form.gedung_id.value = r ? r.gedung_id : (gedung[0] ? gedung[0].id : "");
+  form.nama.value = r ? r.nama : "";
+  form.lantai.value = r ? r.lantai : 1;
+  form.kapasitas.value = r ? r.kapasitas : "";
+  form.fasilitas.value = r ? (r.fasilitas || "") : "";
+  form.aktif.checked = r ? r.aktif : true;
+  openDlg("dlg");
+}
+
+async function muatJadwal() {
+  if (!$("#jadwalTgl").value) return;
+  const data = await api(`/ruangan/${jadwalId}/jadwal`, { params: { tanggal: $("#jadwalTgl").value } });
+  $("#jadwalList").innerHTML = data.length
+    ? `<ul class="timeline">${data.map((j) => `<li><span><strong>${fmtTime(j.mulai)}–${fmtTime(j.selesai)}</strong>
+        <div class="sub">${esc(j.keperluan)} · ${esc(j.peminjam)}</div></span>${badge(j.status)}</li>`).join("")}</ul>`
+    : `<p class="empty">Tidak ada jadwal pada tanggal ini. Ruangan kosong.</p>`;
+}
+
+$("#btnBaru").onclick = () => buka(null);
+$("#btnFilter").onclick = () => guard(load);
+
+$("#tbl").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const r = rows.find((x) => x.id === +b.dataset.id);
+  if (b.dataset.act === "edit") buka(r);
+  else if (b.dataset.act === "jadwal") {
+    jadwalId = r.id;
+    $("#jadwalJudul").textContent = `Jadwal ${r.nama}`;
+    const t = new Date();
+    $("#jadwalTgl").value = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    openDlg("dlgJadwal");
+    guard(muatJadwal);
+  } else if (confirm(`Hapus ruangan "${r.nama}"? Ruangan yang pernah dipinjam tidak bisa dihapus, nonaktifkan saja lewat Ubah.`)) {
+    guard(async () => {
+      await api(`/ruangan/${r.id}`, { method: "DELETE" });
+      toast("Ruangan dihapus"); await load();
+    });
+  }
+});
+
+$("#jadwalTgl").addEventListener("change", () => guard(muatJadwal));
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  guard(async () => {
+    const body = {
+      kode: form.kode.value.trim(), nama: form.nama.value.trim(), gedung_id: +form.gedung_id.value,
+      lantai: +form.lantai.value, kapasitas: +form.kapasitas.value,
+      fasilitas: form.fasilitas.value.trim() || null, aktif: form.aktif.checked,
+    };
+    await api(editId ? `/ruangan/${editId}` : "/ruangan", { method: editId ? "PUT" : "POST", body });
+    $("#dlg").close(); toast("Ruangan disimpan"); await load();
+  });
+});
+
+$("#formCek").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  guard(async () => {
+    const hasil = await api("/ruangan/tersedia", { params: {
+      mulai: f.get("mulai"), selesai: f.get("selesai"), min_kapasitas: f.get("min_kapasitas") } });
+    $("#hasilCek").innerHTML = hasil.length
+      ? `<div class="chips">${hasil.map((r) => {
+          const q = new URLSearchParams({ baru: 1, ruangan_id: r.id, mulai: f.get("mulai"), selesai: f.get("selesai") });
+          return `<div class="chip"><strong>${esc(r.kode)}</strong> ${esc(r.nama)}
+            <div class="sub">${esc(r.gedung)} · kapasitas ${r.kapasitas}</div>
+            <a class="btn sm primary" href="/ui/peminjaman?${q}">Ajukan</a></div>`;
+        }).join("")}</div>`
+      : `<p class="empty">Tidak ada ruangan kosong pada rentang waktu itu.</p>`;
+  });
+});
+
+guard(init);
+</script>
+{% endblock %}

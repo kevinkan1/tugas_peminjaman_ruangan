@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Peminjaman{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Peminjaman</h1>
+  <button class="btn primary" id="btnBaru">+ Ajukan peminjaman</button>
+</div>
+
+<section class="card">
+  <div class="filters">
+    <label>Status
+      <select id="fStatus">
+        <option value="">Semua</option><option>diajukan</option><option>disetujui</option>
+        <option>ditolak</option><option>dibatalkan</option><option>selesai</option>
+      </select>
+    </label>
+    <label>Ruangan <select id="fRuangan"></select></label>
+    <label>Peminjam <select id="fUser"></select></label>
+    <label>Tanggal <input type="date" id="fTanggal"></label>
+    <button class="btn" id="btnFilter">Terapkan</button>
+    <button class="btn" id="btnReset">Reset</button>
+  </div>
+  <div id="tbl" class="table-wrap"></div>
+  <div class="pager">
+    <button class="btn sm" id="prev">&larr; Sebelumnya</button>
+    <span id="pageInfo" class="sub"></span>
+    <button class="btn sm" id="next">Berikutnya &rarr;</button>
+  </div>
+</section>
+
+<dialog id="dlg">
+  <form id="form" class="form">
+    <h2 id="judul">Ajukan peminjaman</h2>
+    <label>Peminjam <select name="user_id" required></select></label>
+    <label>Ruangan <select name="ruangan_id" required></select></label>
+    <label>Keperluan <input name="keperluan" maxlength="200" required></label>
+    <label>Jumlah peserta <input type="number" name="jumlah_peserta" min="1" value="1" required></label>
+    <div class="row2">
+      <label>Mulai <input type="datetime-local" name="mulai" required></label>
+      <label>Selesai <input type="datetime-local" name="selesai" required></label>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn" data-close>Batal</button>
+      <button class="btn primary">Simpan</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgStatus">
+  <form id="formStatus" class="form">
+    <h2 id="statusJudul">Ubah status</h2>
+    <label>Catatan admin (opsional)<textarea name="catatan" rows="3" maxlength="500"></textarea></label>
+    <div class="form-actions">
+      <button type="button" class="btn" data-close>Batal</button>
+      <button class="btn primary">Konfirmasi</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgLog">
+  <div class="form">
+    <h2>Riwayat status</h2>
+    <div id="logList"></div>
+    <div class="form-actions"><button type="button" class="btn" data-close>Tutup</button></div>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const state = { offset: 0, limit: 15, editId: null, rows: [], users: [], ruangan: [] };
+const form = $("#form"), formStatus = $("#formStatus");
+let statusTarget = null;
+
+const AKSI = {
+  diajukan: [["disetujui", "Setujui", "ok"], ["ditolak", "Tolak", "danger"], ["dibatalkan", "Batalkan", ""]],
+  disetujui: [["selesai", "Selesai", "ok"], ["dibatalkan", "Batalkan", ""]],
+};
+const LABEL = { disetujui: "Setujui", ditolak: "Tolak", dibatalkan: "Batalkan", selesai: "Tandai selesai" };
+
+function aksi(r) {
+  const tombol = (AKSI[r.status] || []).map(([s, l, c]) =>
+    `<button class="btn sm ${c}" data-act="status" data-id="${r.id}" data-status="${s}">${l}</button>`).join("");
+  const ubah = r.status === "diajukan" ? `<button class="btn sm" data-act="edit" data-id="${r.id}">Ubah</button>` : "";
+  return `<div class="actions">${tombol}${ubah}
+    <button class="btn sm" data-act="log" data-id="${r.id}">Riwayat</button>
+    <button class="btn sm danger" data-act="hapus" data-id="${r.id}">Hapus</button></div>`;
+}
+
+async function load() {
+  const rows = await api("/peminjaman", { params: {
+    limit: state.limit, offset: state.offset, status: $("#fStatus").value, ruangan_id: $("#fRuangan").value,
+    user_id: $("#fUser").value, tanggal: $("#fTanggal").value } });
+  state.rows = rows;
+  renderTable($("#tbl"), [
+    { h: "#", f: (r) => r.id },
+    { h: "Ruangan", f: (r) => `<strong>${esc(r.kode_ruangan)}</strong> ${esc(r.ruangan)}<div class="sub">${esc(r.gedung)}</div>` },
+    { h: "Peminjam", f: (r) => `${esc(r.peminjam)}<div class="sub">${esc(r.email)}</div>` },
+    { h: "Waktu", f: (r) => `${fmtDT(r.mulai)}<div class="sub">s/d ${fmtDT(r.selesai)} (${r.durasi_jam} jam)</div>` },
+    { h: "Keperluan", f: (r) => `${esc(r.keperluan)}<div class="sub">${r.jumlah_peserta} peserta${r.catatan_admin ? " · Catatan: " + esc(r.catatan_admin) : ""}</div>` },
+    { h: "Status", f: (r) => badge(r.status) },
+    { h: "", f: aksi },
+  ], rows, "Tidak ada peminjaman yang cocok.");
+  $("#pageInfo").textContent = `Halaman ${state.offset / state.limit + 1}`;
+  $("#prev").disabled = state.offset === 0;
+  $("#next").disabled = rows.length < state.limit;
+}
+
+function bukaForm(r, prefill = {}) {
+  state.editId = r ? r.id : null;
+  $("#judul").textContent = r ? `Ubah peminjaman #${r.id}` : "Ajukan peminjaman";
+  form.user_id.value = r ? r.user_id : (prefill.user_id || "");
+  form.ruangan_id.value = r ? r.ruangan_id : (prefill.ruangan_id || "");
+  form.keperluan.value = r ? r.keperluan : "";
+  form.jumlah_peserta.value = r ? r.jumlah_peserta : 1;
+  form.mulai.value = r ? toInput(r.mulai) : (prefill.mulai || "");
+  form.selesai.value = r ? toInput(r.selesai) : (prefill.selesai || "");
+  openDlg("dlg");
+}
+
+async function init() {
+  const [users, ruangan] = await Promise.all([api("/users"), api("/ruangan")]);
+  state.users = users; state.ruangan = ruangan;
+  fillSelect($("#fUser"), users, (u) => u.id, (u) => u.nama, "Semua");
+  fillSelect($("#fRuangan"), ruangan, (r) => r.id, (r) => `${r.kode} · ${r.nama}`, "Semua");
+  fillSelect(form.user_id, users, (u) => u.id, (u) => u.nama, "Pilih peminjam");
+  fillSelect(form.ruangan_id, ruangan, (r) => r.id,
+    (r) => `${r.kode} · ${r.nama} (kap. ${r.kapasitas})${r.aktif ? "" : " — nonaktif"}`, "Pilih ruangan", (r) => !r.aktif);
+  await load();
+
+  const q = new URLSearchParams(location.search);
+  if (q.get("baru")) bukaForm(null, { ruangan_id: q.get("ruangan_id"), mulai: q.get("mulai"), selesai: q.get("selesai") });
+}
+
+$("#btnBaru").onclick = () => bukaForm(null);
+$("#btnFilter").onclick = () => { state.offset = 0; guard(load); };
+$("#btnReset").onclick = () => {
+  ["fStatus", "fRuangan", "fUser", "fTanggal"].forEach((id) => { $("#" + id).value = ""; });
+  state.offset = 0; guard(load);
+};
+$("#prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); guard(load); };
+$("#next").onclick = () => { state.offset += state.limit; guard(load); };
+
+$("#tbl").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-act]");
+  if (!b) return;
+  const r = state.rows.find((x) => x.id === +b.dataset.id);
+  const act = b.dataset.act;
+  if (act === "edit") bukaForm(r);
+  else if (act === "status") {
+    statusTarget = { id: r.id, status: b.dataset.status };
+    $("#statusJudul").textContent = `${LABEL[b.dataset.status]} peminjaman #${r.id}?`;
+    formStatus.catatan.value = "";
+    openDlg("dlgStatus");
+  } else if (act === "log") {
+    guard(async () => {
+      const log = await api(`/peminjaman/${r.id}/log`);
+      $("#logList").innerHTML = log.length
+        ? `<ul class="timeline">${log.map((l) => `<li><span>${l.status_lama ? badge(l.status_lama) + " &rarr; " : "Dibuat: "}${badge(l.status_baru)}</span>
+            <span class="sub">${fmtDT(l.waktu)}</span></li>`).join("")}</ul>`
+        : `<p class="empty">Belum ada riwayat.</p>`;
+      openDlg("dlgLog");
+    });
+  } else if (confirm(`Hapus permanen peminjaman #${r.id}? Untuk membatalkan, lebih baik pakai tombol Batalkan.`)) {
+    guard(async () => {
+      await api(`/peminjaman/${r.id}`, { method: "DELETE" });
+      toast("Peminjaman dihapus"); await load();
+    });
+  }
+});
+
+formStatus.addEventListener("submit", (e) => {
+  e.preventDefault();
+  guard(async () => {
+    const body = { status: statusTarget.status };
+    const catatan = formStatus.catatan.value.trim();
+    if (catatan) body.catatan_admin = catatan;
+    await api(`/peminjaman/${statusTarget.id}/status`, { method: "PATCH", body });
+    $("#dlgStatus").close(); toast("Status diperbarui"); await load();
+  });
+});
+
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  guard(async () => {
+    const body = {
+      user_id: +form.user_id.value, ruangan_id: +form.ruangan_id.value, keperluan: form.keperluan.value.trim(),
+      jumlah_peserta: +form.jumlah_peserta.value, mulai: form.mulai.value, selesai: form.selesai.value,
+    };
+    await api(state.editId ? `/peminjaman/${state.editId}` : "/peminjaman",
+      { method: state.editId ? "PUT" : "POST", body });
+    $("#dlg").close(); toast(state.editId ? "Peminjaman diperbarui" : "Pengajuan terkirim"); await load();
+  });
+});
+
+guard(init);
+</script>
+{% endblock %}

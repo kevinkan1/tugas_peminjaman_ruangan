@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Dashboard</h1>
+  <a class="btn primary" href="/ui/peminjaman?baru=1">+ Ajukan peminjaman</a>
+</div>
+
+<section class="stats" id="stats"></section>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Pengajuan menunggu persetujuan</h2>
+    <div id="pending" class="table-wrap"></div>
+    <p class="sub"><a href="/ui/peminjaman">Kelola semua peminjaman &rarr;</a></p>
+  </section>
+  <section class="card">
+    <h2>Ruangan terpopuler</h2>
+    <div id="populer" class="table-wrap"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUS = ["diajukan", "disetujui", "ditolak", "dibatalkan", "selesai"];
+
+guard(async () => {
+  const [rekap, populer, pending] = await Promise.all([
+    api("/laporan/rekap-status"),
+    api("/laporan/ruangan-terpopuler", { params: { limit: 5 } }),
+    api("/peminjaman", { params: { status: "diajukan", limit: 6 } }),
+  ]);
+
+  const hitung = Object.fromEntries(rekap.map((r) => [r.status, r.jumlah]));
+  $("#stats").innerHTML = STATUS.map((s) =>
+    `<div class="stat ${s}"><span class="num">${hitung[s] || 0}</span><span class="lbl">${s}</span></div>`).join("");
+
+  renderTable($("#pending"), [
+    { h: "Ruangan", f: (r) => `${esc(r.ruangan)}<div class="sub">${esc(r.gedung)}</div>` },
+    { h: "Peminjam", f: (r) => esc(r.peminjam) },
+    { h: "Waktu", f: (r) => `${fmtDT(r.mulai)}<div class="sub">s/d ${fmtTime(r.selesai)}</div>` },
+    { h: "Peserta", cls: "num", f: (r) => r.jumlah_peserta },
+  ], pending, "Tidak ada pengajuan yang menunggu.");
+
+  renderTable($("#populer"), [
+    { h: "Ruangan", f: (r) => `${esc(r.nama)}<div class="sub">${esc(r.kode)} · ${esc(r.gedung)}</div>` },
+    { h: "Pinjam", cls: "num", f: (r) => r.total_peminjaman },
+    { h: "Jam", cls: "num", f: (r) => r.total_jam },
+  ], populer);
+});
+</script>
+{% endblock %}
